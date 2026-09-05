@@ -1,0 +1,31 @@
+name: Build D2D Phase 4.2 UI Polish
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - artifact/d2d-crm-phase4.2-ui-polish/READY
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP syntax check
+        run: php -l artifact/d2d-crm-phase4.2-ui-polish/install-phase4.2-ui.php
+
+      - name: Verify files
+        run: |
+          test -f artifact/d2d-crm-phase4.2-ui-polish/install-phase4.2-ui.php
+          test -f artifact/d2d-crm-phase4.2-ui-polish/README.md
+
+      - name: Upload UI patch ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4.2-ui-polish
+          path: artifact/d2d-crm-phase4.2-ui-polish/
+          if-no-files-found: error
+          retention-days: 7
