@@ -1,0 +1,32 @@
+name: Build D2D Phase 5A Full
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5a-full/**'
+      - '.github/workflows/build-d2d-phase5a-full.yml'
+      - 'trigger-phase5a-full.txt'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate package
+        run: bash artifact/d2d-public-phase5a-full/build-phase5a-full.sh
+      - name: Validate PHP syntax
+        run: |
+          find artifact/d2d-public-phase5a-full/package -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5a-full/package
+          zip -r ../../../../d2d-public-phase5a-full.zip .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5a-full
+          path: d2d-public-phase5a-full.zip
+          retention-days: 7
