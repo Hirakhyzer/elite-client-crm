@@ -1,0 +1,32 @@
+name: Build D2D Phase 5A Staging Foundation
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5a-staging-foundation/**'
+      - '.github/workflows/build-d2d-phase5a-staging.yml'
+      - 'trigger-phase5a-staging.txt'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate installer syntax
+        run: php -l artifact/d2d-public-phase5a-staging-foundation/install-phase5a-staging.php
+
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5a-staging-foundation
+          zip -r ../../d2d-public-phase5a-staging-foundation.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5a-staging-foundation
+          path: d2d-public-phase5a-staging-foundation.zip
+          retention-days: 7
