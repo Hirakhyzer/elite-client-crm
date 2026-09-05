@@ -1,0 +1,32 @@
+name: Build D2D Phase 4.5 Branding Account
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-crm-phase4.5-branding-account/**'
+      - '.github/workflows/build-d2d-phase4.5-branding-account.yml'
+      - 'trigger-phase4.5-branding-account.txt'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate installer syntax
+        run: php -l artifact/d2d-crm-phase4.5-branding-account/install-phase4.5-branding-account.php
+
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-crm-phase4.5-branding-account
+          zip -r ../../../d2d-crm-phase4.5-branding-account.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4.5-branding-account
+          path: d2d-crm-phase4.5-branding-account.zip
+          retention-days: 7
