@@ -1,0 +1,31 @@
+name: Build D2D Phase 4.1 Hotfix
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - artifact/d2d-crm-phase4.1-hotfix/READY
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP syntax check
+        run: php -l artifact/d2d-crm-phase4.1-hotfix/install-phase4.1-hotfix.php
+
+      - name: Verify files
+        run: |
+          test -f artifact/d2d-crm-phase4.1-hotfix/install-phase4.1-hotfix.php
+          test -f artifact/d2d-crm-phase4.1-hotfix/README.md
+
+      - name: Upload hotfix ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4.1-hotfix
+          path: artifact/d2d-crm-phase4.1-hotfix/
+          if-no-files-found: error
+          retention-days: 7
