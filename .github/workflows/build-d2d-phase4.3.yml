@@ -1,0 +1,36 @@
+name: Build D2D Phase 4.3 Dashboard Analytics
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - artifact/d2d-crm-phase4.3-dashboard-analytics/READY
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP syntax check
+        run: |
+          find artifact/d2d-crm-phase4.3-dashboard-analytics -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Verify required files
+        run: |
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/install-phase4.3.php
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/routes/phase4-analytics.php
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/resources/views/crm/phase4/analytics/index.blade.php
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/resources/views/crm/phase4/analytics/dashboard.blade.php
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/app/Services/Analytics/AnalyticsDashboardService.php
+          test -f artifact/d2d-crm-phase4.3-dashboard-analytics/app/Services/Analytics/D2dAnalytics.php
+
+      - name: Upload Phase 4.3 ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4.3-dashboard-analytics
+          path: artifact/d2d-crm-phase4.3-dashboard-analytics/
+          if-no-files-found: error
+          retention-days: 7
