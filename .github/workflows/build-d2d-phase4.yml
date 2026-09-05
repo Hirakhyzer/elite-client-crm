@@ -1,0 +1,26 @@
+name: Build D2D Phase 4 Patch
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify patch files
+        run: |
+          test -f artifact/d2d-crm-phase4-wordpress-importer-patch/install-phase4.php
+          test -f artifact/d2d-crm-phase4-wordpress-importer-patch/README.md
+
+      - name: Upload Phase 4 patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4-wordpress-importer-patch
+          path: artifact/d2d-crm-phase4-wordpress-importer-patch/
+          if-no-files-found: error
+          retention-days: 7
