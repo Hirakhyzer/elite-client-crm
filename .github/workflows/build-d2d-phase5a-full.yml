@@ -32,7 +32,7 @@ jobs:
       - name: Build ZIP
         run: |
           cd artifact/d2d-public-phase5a-full/package
-          zip -r ../../../../d2d-public-phase5a-full.zip .
+          zip -r "$GITHUB_WORKSPACE/d2d-public-phase5a-full.zip" .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
