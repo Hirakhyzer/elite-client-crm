@@ -1,0 +1,36 @@
+name: Build D2D Phase 4.4 Popup Preview
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - artifact/d2d-crm-phase4.4-popup-preview/READY
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP syntax checks
+        run: |
+          php -l artifact/d2d-crm-phase4.4-popup-preview/install-phase4.4.php
+          php -l artifact/d2d-crm-phase4.4-popup-preview/app/Http/Controllers/Crm/Phase44/PopupPreviewController.php
+          php -l artifact/d2d-crm-phase4.4-popup-preview/routes/phase4_4.php
+
+      - name: Verify required files
+        run: |
+          test -f artifact/d2d-crm-phase4.4-popup-preview/resources/views/crm/phase4_4/popup-preview/index.blade.php
+          test -f artifact/d2d-crm-phase4.4-popup-preview/resources/views/crm/phase4_4/popup-preview/show.blade.php
+          test -f artifact/d2d-crm-phase4.4-popup-preview/resources/views/crm/partials/phase4-4-popup-preview.blade.php
+          test -f artifact/d2d-crm-phase4.4-popup-preview/README.md
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-crm-phase4.4-popup-preview
+          path: artifact/d2d-crm-phase4.4-popup-preview/
+          if-no-files-found: error
+          retention-days: 7
