@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - chatgpt-d2d-phase4-artifact
+    paths:
+      - artifact/d2d-crm-phase4-wordpress-importer-patch/READY
 
 jobs:
   build:
