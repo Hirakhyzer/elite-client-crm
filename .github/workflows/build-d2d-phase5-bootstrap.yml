@@ -1,0 +1,31 @@
+name: Build D2D Phase 5 Bootstrap
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5-bootstrap/**'
+      - '.github/workflows/build-d2d-phase5-bootstrap.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate bootstrap syntax
+        run: php -l artifact/d2d-public-phase5-bootstrap/bootstrap-phase5-base.php
+
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5-bootstrap
+          zip -r ../../d2d-public-phase5-bootstrap.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5-bootstrap
+          path: d2d-public-phase5-bootstrap.zip
+          retention-days: 7
