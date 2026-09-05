@@ -1,0 +1,28 @@
+name: Build D2D Phase 5A.1 V11 Bind
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5a1-v11-bind/**'
+      - '.github/workflows/build-d2d-phase5a1-v11-bind.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PHP syntax
+        run: php -l artifact/d2d-public-phase5a1-v11-bind/app/Http/Controllers/PublicSiteController.php
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5a1-v11-bind
+          zip -r ../../../d2d-public-phase5a1-v11-bind.zip .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5a1-v11-bind
+          path: d2d-public-phase5a1-v11-bind.zip
+          retention-days: 7
