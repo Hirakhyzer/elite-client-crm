@@ -22,7 +22,7 @@ jobs:
       - name: Build ZIP
         run: |
           cd artifact/d2d-crm-phase4.5-branding-account
-          zip -r ../../../d2d-crm-phase4.5-branding-account.zip .
+          zip -r ../../d2d-crm-phase4.5-branding-account.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
