@@ -21,7 +21,7 @@ jobs:
       - name: Build ZIP
         run: |
           cd artifact/d2d-public-phase5a2-v11-assets-fix
-          zip -r ../../../d2d-public-phase5a2-v11-assets-fix.zip .
+          zip -r ../../d2d-public-phase5a2-v11-assets-fix.zip .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
