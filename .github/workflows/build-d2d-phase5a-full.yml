@@ -17,6 +17,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Generate package
         run: bash artifact/d2d-public-phase5a-full/build-phase5a-full.sh
+      - name: Fix generated console line
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('artifact/d2d-public-phase5a-full/package/routes/console.php')
+          s=p.read_text()
+          s=s.replace("(string)$val));}", "(string)$val)));}")
+          p.write_text(s)
+          PY
       - name: Validate PHP syntax
         run: |
           find artifact/d2d-public-phase5a-full/package -name '*.php' -print0 | xargs -0 -n1 php -l
