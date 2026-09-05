@@ -19,7 +19,7 @@ jobs:
       - name: Build ZIP
         run: |
           cd artifact/d2d-public-phase5a1-v11-bind
-          zip -r ../../../d2d-public-phase5a1-v11-bind.zip .
+          zip -r ../../d2d-public-phase5a1-v11-bind.zip .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
