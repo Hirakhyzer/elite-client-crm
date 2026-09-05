@@ -14,10 +14,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
       - name: Verify patch files
         run: |
           test -f artifact/d2d-crm-phase4-wordpress-importer-patch/install-phase4.php
           test -f artifact/d2d-crm-phase4-wordpress-importer-patch/README.md
+          test -f artifact/d2d-crm-phase4-wordpress-importer-patch/routes/phase4.php
+
+      - name: PHP syntax check
+        run: |
+          find artifact/d2d-crm-phase4-wordpress-importer-patch -type f -name '*.php' -print0 | xargs -0 -n1 php -l
 
       - name: Upload Phase 4 patch
         uses: actions/upload-artifact@v4
