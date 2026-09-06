@@ -1,0 +1,29 @@
+name: Build D2D Phase 5B CRM Content Integration
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5b-crm-content-integration/**'
+      - '.github/workflows/build-d2d-phase5b.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PHP syntax
+        run: |
+          find artifact/d2d-public-phase5b-crm-content-integration -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5b-crm-content-integration
+          zip -r ../../../d2d-public-phase5b-crm-content-integration.zip .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5b-crm-content-integration
+          path: d2d-public-phase5b-crm-content-integration.zip
+          retention-days: 7
