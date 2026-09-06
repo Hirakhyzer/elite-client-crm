@@ -1,0 +1,30 @@
+name: Build D2D Phase 5A.3 V11 Root Assets
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifact/d2d-public-phase5a3-v11-root-assets/**'
+      - '.github/workflows/build-d2d-phase5a3-v11-root-assets.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PHP syntax
+        run: |
+          php -l artifact/d2d-public-phase5a3-v11-root-assets/app/Http/Controllers/PublicSiteController.php
+          php -l artifact/d2d-public-phase5a3-v11-root-assets/install-phase5a3-v11-assets.php
+      - name: Build ZIP
+        run: |
+          cd artifact/d2d-public-phase5a3-v11-root-assets
+          zip -r "$GITHUB_WORKSPACE/d2d-public-phase5a3-v11-root-assets.zip" .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-public-phase5a3-v11-root-assets
+          path: d2d-public-phase5a3-v11-root-assets.zip
+          retention-days: 7
