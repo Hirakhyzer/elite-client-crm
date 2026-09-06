@@ -20,7 +20,7 @@ jobs:
       - name: Build ZIP
         run: |
           cd artifact/d2d-public-phase5b-crm-content-integration
-          zip -r ../../../d2d-public-phase5b-crm-content-integration.zip .
+          zip -r ../../d2d-public-phase5b-crm-content-integration.zip .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
