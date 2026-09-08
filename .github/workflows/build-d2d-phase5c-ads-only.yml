@@ -1,0 +1,622 @@
+name: Build D2D Phase 5C Ads Only Safe
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - '.github/workflows/build-d2d-phase5c-ads-only.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build ads-only package
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="d2d-phase5c-ads-only-safe"
+          mkdir -p "$PKG"
+
+          cat > "$PKG/install-phase5c-ads-only.php" <<'PHP'
+          <?php
+          declare(strict_types=1);
+
+          $base = __DIR__;
+          echo "=== D2D Phase 5C — ADS ONLY SAFE INSTALLER ===\n";
+
+          if (!is_file($base.'/artisan')) {
+              fwrite(STDERR, "ERROR: artisan not found. Extract this package into /home/daresdre/d2d-laravel/.\n");
+              exit(1);
+          }
+          if (str_contains($base, 'crm.dares2dream.com') || str_contains($base, 'portal.dares2dream.com')) {
+              fwrite(STDERR, "ERROR: Wrong application. This package is for the public Laravel app only.\n");
+              exit(1);
+          }
+
+          $files = [
+              'app/Providers/D2dAdsServiceProvider.php' => <<<'FILE'
+          <?php
+          namespace App\Providers;
+
+          use App\Http\Middleware\D2dPublicAdsMiddleware;
+          use Illuminate\Support\ServiceProvider;
+
+          class D2dAdsServiceProvider extends ServiceProvider
+          {
+              public function register(): void {}
+
+              public function boot(): void
+              {
+                  $this->app['router']->pushMiddlewareToGroup('web', D2dPublicAdsMiddleware::class);
+
+                  if ($this->app->runningInConsole()) {
+                      require base_path('routes/phase5-ads-console.php');
+                  }
+              }
+          }
+          FILE,
+
+              'app/Http/Middleware/D2dPublicAdsMiddleware.php' => <<<'FILE'
+          <?php
+          namespace App\Http\Middleware;
+
+          use App\Services\Phase5\D2dAdsConfig;
+          use Closure;
+          use Illuminate\Http\Request;
+          use Symfony\Component\HttpFoundation\Response;
+
+          class D2dPublicAdsMiddleware
+          {
+              public function __construct(private D2dAdsConfig $ads) {}
+
+              public function handle(Request $request, Closure $next): Response
+              {
+                  $response = $next($request);
+
+                  if (!$request->isMethod('GET') || $response->getStatusCode() !== 200) return $response;
+                  $contentType = strtolower((string)$response->headers->get('Content-Type', ''));
+                  if ($contentType !== '' && !str_contains($contentType, 'text/html')) return $response;
+
+                  $runtime = $this->ads->runtime($request->path(), $request->getHost());
+                  if (empty($runtime['approved'])) return $response;
+
+                  $html = $response->getContent();
+                  if (!is_string($html) || $html === '' || stripos($html, '</body>') === false) return $response;
+                  if (str_contains($html, 'data-d2d-ads-runtime="1"')) return $response;
+
+                  $json = json_encode($runtime, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                  if ($json === false) return $response;
+
+                  $head = '<link rel="stylesheet" href="/d2d-ads-only.css?v=20260908">';
+                  $body = '<script data-d2d-ads-runtime="1">window.D2D_ADS_RUNTIME='.$json.';</script>'
+                        . '<script src="/d2d-ads-only.js?v=20260908" defer></script>';
+
+                  if (stripos($html, '</head>') !== false) {
+                      $html = preg_replace('#</head>#i', $head.'</head>', $html, 1) ?? $html;
+                  }
+                  $html = preg_replace('#</body>#i', $body.'</body>', $html, 1) ?? $html;
+                  $response->setContent($html);
+
+                  return $response;
+              }
+          }
+          FILE,
+
+              'app/Services/Phase5/D2dAdsConfig.php' => <<<'FILE'
+          <?php
+          namespace App\Services\Phase5;
+
+          use Illuminate\Support\Facades\Cache;
+          use Illuminate\Support\Facades\DB;
+          use Illuminate\Support\Str;
+
+          class D2dAdsConfig
+          {
+              private const APPROVED = [
+                  'blog'        => '#^blog/[^/]+$#',
+                  'university'  => '#^universities/[^/]+$#',
+                  'scholarship' => '#^scholarships/[^/]+$#',
+                  'opportunity' => '#^opportunities/[^/]+$#',
+                  'job'         => '#^jobs/[^/]+$#',
+              ];
+
+              private const PLACEMENTS = [
+                  'blog'        => ['article_mid','article_end'],
+                  'university'  => ['university_content_mid','university_content_end'],
+                  'scholarship' => ['scholarship_content_mid','scholarship_content_end'],
+                  'opportunity' => ['opportunity_content_mid','opportunity_content_end'],
+                  'job'         => ['job_content_mid','job_content_end'],
+              ];
+
+              public function pageTypeForPath(string $path): ?string
+              {
+                  $path = trim($path, '/');
+                  foreach (self::APPROVED as $type => $regex) {
+                      if (preg_match($regex, $path) === 1) return $type;
+                  }
+                  return null;
+              }
+
+              public function runtime(string $path, string $host): array
+              {
+                  $pageType = $this->pageTypeForPath($path);
+                  if (!$pageType) {
+                      return ['approved'=>false,'page_type'=>null,'placements'=>[],'live'=>false,'test_mode'=>false];
+                  }
+
+                  $settings = $this->googleSettings();
+                  $rules = $this->matchingRules($pageType);
+                  $previewHost = Str::lower($host) !== 'dares2dream.com';
+                  $testMode = $previewHost || (bool)($settings['test_mode'] ?? false);
+                  $publisher = $this->normalizePublisherId($settings['publisher_id'] ?? null);
+                  $prepared = (bool)($settings['prepare_adsense'] ?? false);
+                  $autoAds = (bool)($settings['auto_ads'] ?? false);
+
+                  $placements = [];
+                  foreach (self::PLACEMENTS[$pageType] as $placement) {
+                      $rule = $rules[$placement] ?? null;
+                      $placements[] = [
+                          'name'=>$placement,
+                          'label'=>Str::headline($placement),
+                          'slot_id'=>$rule['slot_id'] ?? null,
+                          'enabled'=>$rule ? (bool)$rule['active'] : $testMode,
+                          'device'=>$rule['device'] ?? 'all',
+                      ];
+                  }
+
+                  // Auto Ads must remain OFF for this controlled placement design.
+                  // If CRM says Auto Ads is ON, live rendering is blocked rather than risking site-wide placement.
+                  $live = !$testMode && $prepared && !$autoAds && !empty($publisher);
+
+                  return [
+                      'approved'=>true,
+                      'page_type'=>$pageType,
+                      'publisher_id'=>$publisher,
+                      'prepare_adsense'=>$prepared,
+                      'auto_ads'=>$autoAds,
+                      'test_mode'=>$testMode,
+                      'preview_host'=>$previewHost,
+                      'live'=>$live,
+                      'placements'=>$placements,
+                  ];
+              }
+
+              public function googleSettings(): array
+              {
+                  return Cache::remember('d2d.ads.google.settings', 120, function () {
+                      $default = [
+                          'prepare_adsense'=>false,
+                          'publisher_id'=>null,
+                          'auto_ads'=>false,
+                          'test_mode'=>true,
+                          'ads_txt'=>null,
+                          'source'=>null,
+                      ];
+
+                      foreach ($this->candidateTables(['google','setting','integration','marketing']) as $table) {
+                          $cols = $this->columns($table);
+                          if (!$cols) continue;
+
+                          $keyCol = $this->firstColumn($cols, ['key','name','setting_key','option_key']);
+                          $valueCol = $this->firstColumn($cols, ['value','setting_value','option_value']);
+
+                          if ($keyCol && $valueCol) {
+                              try {
+                                  $bag = [];
+                                  foreach (DB::table($table)->limit(500)->get() as $row) {
+                                      $a = (array)$row;
+                                      $key = Str::lower(trim((string)($a[$keyCol] ?? '')));
+                                      if ($key !== '') $bag[$key] = $a[$valueCol] ?? null;
+                                  }
+                                  $found = $this->extractFromBag($bag);
+                                  if ($this->useful($found)) return array_merge($default, $found, ['source'=>$table]);
+                              } catch (\Throwable $e) { report($e); }
+                          }
+
+                          try {
+                              $row = DB::table($table)->first();
+                              if ($row) {
+                                  $found = $this->extractFromRow((array)$row);
+                                  if ($this->useful($found)) return array_merge($default, $found, ['source'=>$table]);
+                              }
+                          } catch (\Throwable $e) { report($e); }
+                      }
+
+                      return $default;
+                  });
+              }
+
+              public function matchingRules(string $pageType): array
+              {
+                  return Cache::remember('d2d.ads.rules.'.$pageType, 90, function () use ($pageType) {
+                      $allowed = self::PLACEMENTS[$pageType] ?? [];
+                      $out = [];
+
+                      foreach ($this->candidateTables(['ad_rule','ads_rule','advert','marketing_ad','adslot','ad_slot']) as $table) {
+                          $cols = $this->columns($table);
+                          if (!$cols) continue;
+
+                          $placementCol = $this->firstColumn($cols, ['placement','placement_key','slot_key','position']);
+                          $slotCol = $this->firstColumn($cols, ['slot_id','ad_slot_id','adsense_slot_id','google_slot_id','unit_id','ad_unit_id']);
+                          if (!$placementCol) continue;
+
+                          try { $rows = DB::table($table)->limit(1000)->get(); }
+                          catch (\Throwable $e) { report($e); continue; }
+
+                          foreach ($rows as $row) {
+                              $a = (array)$row;
+                              if (!$this->active($a) || !$this->matchesPage($a, $pageType) || !$this->inSchedule($a)) continue;
+
+                              $placement = trim((string)($a[$placementCol] ?? ''));
+                              if (!in_array($placement, $allowed, true)) continue;
+
+                              $slot = $slotCol ? trim((string)($a[$slotCol] ?? '')) : null;
+                              $out[$placement] = [
+                                  'active'=>true,
+                                  'slot_id'=>$slot ?: null,
+                                  'device'=>$this->device($a),
+                                  'source'=>$table,
+                              ];
+                          }
+
+                          if ($out) break;
+                      }
+
+                      return $out;
+                  });
+              }
+
+              public function diagnostics(): array
+              {
+                  return [
+                      'settings'=>$this->googleSettings(),
+                      'settings_tables'=>$this->candidateTables(['google','setting','integration','marketing']),
+                      'rule_tables'=>$this->candidateTables(['ad_rule','ads_rule','advert','marketing_ad','adslot','ad_slot']),
+                      'approved'=>array_keys(self::APPROVED),
+                  ];
+              }
+
+              private function extractFromBag(array $bag): array
+              {
+                  return [
+                      'prepare_adsense'=>$this->boolBag($bag,['prepare_adsense','adsense_enabled','enable_adsense','ads_enabled']),
+                      'publisher_id'=>$this->valueBag($bag,['publisher_id','adsense_publisher_id','google_publisher_id','adsense_client']),
+                      'auto_ads'=>$this->boolBag($bag,['auto_ads','adsense_auto_ads']),
+                      'test_mode'=>$this->boolBag($bag,['test_mode','ads_test_mode','adsense_test_mode'],true),
+                      'ads_txt'=>$this->valueBag($bag,['ads_txt','ads_txt_line','adstxt']),
+                  ];
+              }
+
+              private function extractFromRow(array $row): array
+              {
+                  return [
+                      'prepare_adsense'=>$this->boolRow($row,['prepare_adsense','adsense_enabled','enable_adsense','ads_enabled']),
+                      'publisher_id'=>$this->valueRow($row,['publisher_id','adsense_publisher_id','google_publisher_id','adsense_client']),
+                      'auto_ads'=>$this->boolRow($row,['auto_ads','adsense_auto_ads']),
+                      'test_mode'=>$this->boolRow($row,['test_mode','ads_test_mode','adsense_test_mode'],true),
+                      'ads_txt'=>$this->valueRow($row,['ads_txt','ads_txt_line','adstxt']),
+                  ];
+              }
+
+              private function useful(array $settings): bool
+              {
+                  return !empty($settings['publisher_id']) || !empty($settings['ads_txt']) || !empty($settings['prepare_adsense']);
+              }
+
+              private function active(array $row): bool
+              {
+                  foreach (['status','state'] as $key) {
+                      if (isset($row[$key]) && $row[$key] !== '') {
+                          return in_array(Str::lower((string)$row[$key]), ['active','enabled','published','live','1'], true);
+                      }
+                  }
+                  foreach (['is_active','active','enabled'] as $key) {
+                      if (array_key_exists($key, $row)) return (bool)$row[$key];
+                  }
+                  return true;
+              }
+
+              private function matchesPage(array $row, string $pageType): bool
+              {
+                  $values = [];
+                  foreach (['page_type','page','pages','target_page','content_type','entity_type'] as $key) {
+                      if (!empty($row[$key])) $values[] = Str::lower((string)$row[$key]);
+                  }
+                  if (!$values) return true;
+
+                  $aliases = match ($pageType) {
+                      'blog'=>['blog','post','article','blog_post'],
+                      'university'=>['university','universities','institution'],
+                      'scholarship'=>['scholarship','scholarships'],
+                      'opportunity'=>['opportunity','opportunities'],
+                      'job'=>['job','jobs'],
+                  };
+
+                  foreach ($values as $value) {
+                      if ($value === 'all' || $value === '*') return true;
+                      foreach ($aliases as $alias) if (Str::contains($value, $alias)) return true;
+                  }
+                  return false;
+              }
+
+              private function inSchedule(array $row): bool
+              {
+                  $now = now();
+                  foreach (['starts_at','start_at','start_date'] as $key) {
+                      if (!empty($row[$key])) {
+                          try { if ($now->lt(\Carbon\Carbon::parse($row[$key]))) return false; } catch (\Throwable) {}
+                          break;
+                      }
+                  }
+                  foreach (['ends_at','end_at','end_date'] as $key) {
+                      if (!empty($row[$key])) {
+                          try { if ($now->gt(\Carbon\Carbon::parse($row[$key]))) return false; } catch (\Throwable) {}
+                          break;
+                      }
+                  }
+                  return true;
+              }
+
+              private function device(array $row): string
+              {
+                  foreach (['device','devices','device_type','target_device'] as $key) {
+                      if (!empty($row[$key])) {
+                          $value = Str::lower((string)$row[$key]);
+                          if (Str::contains($value, 'mobile')) return 'mobile';
+                          if (Str::contains($value, 'desktop')) return 'desktop';
+                      }
+                  }
+                  return 'all';
+              }
+
+              private function normalizePublisherId(mixed $value): ?string
+              {
+                  $value = trim((string)$value);
+                  if ($value === '') return null;
+                  return preg_match('/ca-pub-\d{6,}/', $value, $m) ? $m[0] : null;
+              }
+
+              private function candidateTables(array $needles): array
+              {
+                  try {
+                      $rows = DB::select('SELECT TABLE_NAME AS table_name FROM information_schema.tables WHERE table_schema = DATABASE()');
+                  } catch (\Throwable $e) { report($e); return []; }
+
+                  $out = [];
+                  foreach ($rows as $row) {
+                      $name = (string)($row->table_name ?? '');
+                      $lower = Str::lower($name);
+                      foreach ($needles as $needle) {
+                          if (Str::contains($lower, Str::lower($needle))) { $out[] = $name; break; }
+                      }
+                  }
+                  return array_values(array_unique($out));
+              }
+
+              private function columns(string $table): array
+              {
+                  try {
+                      $rows = DB::select('SELECT COLUMN_NAME AS column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?', [$table]);
+                      return array_map(fn($r)=>(string)$r->column_name, $rows);
+                  } catch (\Throwable $e) { report($e); return []; }
+              }
+
+              private function firstColumn(array $columns, array $preferred): ?string
+              {
+                  $map = [];
+                  foreach ($columns as $column) $map[Str::lower($column)] = $column;
+                  foreach ($preferred as $name) if (isset($map[Str::lower($name)])) return $map[Str::lower($name)];
+                  return null;
+              }
+
+              private function valueBag(array $bag, array $keys): mixed
+              {
+                  foreach ($keys as $key) foreach ($bag as $actual=>$value) if ($actual===$key || Str::contains($actual,$key)) return $value;
+                  return null;
+              }
+              private function boolBag(array $bag, array $keys, bool $default=false): bool
+              {
+                  $value=$this->valueBag($bag,$keys); return $value===null ? $default : $this->toBool($value);
+              }
+              private function valueRow(array $row, array $keys): mixed
+              {
+                  foreach ($keys as $key) foreach ($row as $actual=>$value) {
+                      $actual=Str::lower((string)$actual);
+                      if (($actual===$key || Str::contains($actual,$key)) && $value!==null && $value!=='') return $value;
+                  }
+                  return null;
+              }
+              private function boolRow(array $row, array $keys, bool $default=false): bool
+              {
+                  $value=$this->valueRow($row,$keys); return $value===null ? $default : $this->toBool($value);
+              }
+              private function toBool(mixed $value): bool
+              {
+                  if (is_bool($value)) return $value;
+                  if (is_numeric($value)) return (int)$value===1;
+                  return in_array(Str::lower(trim((string)$value)), ['1','true','yes','on','enabled','active'], true);
+              }
+          }
+          FILE,
+
+              'public/d2d-ads-only.js' => <<<'FILE'
+          (function(){
+          "use strict";
+          var cfg=window.D2D_ADS_RUNTIME||{};
+          if(!cfg.approved||!Array.isArray(cfg.placements)||!cfg.placements.length)return;
+          function esc(v){return String(v||"").replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"})[c]})}
+          function deviceOK(d){var m=window.matchMedia&&window.matchMedia("(max-width:767px)").matches;if(d==="mobile")return m;if(d==="desktop")return !m;return true}
+          function slot(p){var w=document.createElement("aside");w.className="d2d-ad-slot";w.setAttribute("aria-label","Advertisement");w.dataset.placement=p.name||"";if(!deviceOK(p.device||"all"))w.hidden=true;
+           if(cfg.test_mode||!cfg.live||!p.slot_id){w.classList.add("is-preview");w.innerHTML='<div class="d2d-ad-label">ADVERTISEMENT</div><div class="d2d-ad-preview"><strong>'+esc(p.label||p.name)+'</strong><span>'+((cfg.test_mode||cfg.preview_host)?'Preview mode — live AdSense suppressed':(cfg.auto_ads?'Auto Ads is ON — live rendering blocked':'No active CRM AdSense slot configured'))+'</span></div>';return w}
+           w.innerHTML='<div class="d2d-ad-label">ADVERTISEMENT</div>';var ins=document.createElement("ins");ins.className="adsbygoogle";ins.style.display="block";ins.setAttribute("data-ad-client",cfg.publisher_id);ins.setAttribute("data-ad-slot",String(p.slot_id));ins.setAttribute("data-ad-format","auto");ins.setAttribute("data-full-width-responsive","true");w.appendChild(ins);return w}
+          function root(){if(cfg.page_type==="blog")return document.querySelector("article .d2d-prose,article,.d2d-article,main article,main");if(cfg.page_type==="university")return document.querySelector(".d2d-u-detail-grid article,.d2d-profile-grid article,main article,main");return document.querySelector(".d2d-profile-grid article,.d2d-u-detail-grid article,main article,main")}
+          function mid(r,n){var ps=Array.from(r.querySelectorAll("p")).filter(function(p){return p.textContent.trim().length>35});if(ps.length>=4){ps[Math.min(3,ps.length-1)].insertAdjacentElement("afterend",n);return}var ss=Array.from(r.children);if(ss.length>=2){ss[0].insertAdjacentElement("afterend",n);return}r.appendChild(n)}
+          function end(r,n){var ss=r.querySelectorAll(".d2d-content-card,.d2d-u-detail-card,section");if(ss.length){ss[ss.length-1].insertAdjacentElement("afterend",n);return}r.appendChild(n)}
+          var r=root();if(!r)return;cfg.placements.filter(function(p){return p&&p.enabled}).slice(0,2).forEach(function(p,i){var n=slot(p);i===0?mid(r,n):end(r,n)});
+          if(cfg.live&&!cfg.test_mode&&!cfg.auto_ads&&cfg.publisher_id&&!document.querySelector('script[data-d2d-adsense="1"]')){var s=document.createElement("script");s.async=true;s.crossOrigin="anonymous";s.dataset.d2dAdsense="1";s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client="+encodeURIComponent(cfg.publisher_id);document.head.appendChild(s);s.addEventListener("load",function(){document.querySelectorAll(".d2d-ad-slot ins.adsbygoogle").forEach(function(){try{(window.adsbygoogle=window.adsbygoogle||[]).push({})}catch(e){}})})}
+          })();
+          FILE,
+
+              'public/d2d-ads-only.css' => <<<'FILE'
+          .d2d-ad-slot{width:100%;max-width:970px;margin:34px auto;clear:both;font-family:Manrope,Inter,Arial,sans-serif}.d2d-ad-label{margin:0 0 8px;color:#92949b;font-size:8px;font-weight:700;letter-spacing:.16em;text-align:center}.d2d-ad-slot.is-preview{padding:16px;border:1px dashed #d4d5d8;border-radius:12px;background:#fafafa}.d2d-ad-preview{min-height:94px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-radius:8px;background:#f3f3f1;color:#7b7d84;text-align:center}.d2d-ad-preview strong{color:#35363b;font-size:11px;font-weight:650}.d2d-ad-preview span{font-size:9px}.d2d-ad-slot ins.adsbygoogle{min-height:90px}@media(max-width:767px){.d2d-ad-slot{margin:24px auto}.d2d-ad-slot.is-preview{padding:12px}.d2d-ad-preview{min-height:78px}}
+          FILE,
+
+              'routes/phase5-ads-console.php' => <<<'FILE'
+          <?php
+          use App\Services\Phase5\D2dAdsConfig;
+          use Illuminate\Support\Facades\Artisan;
+
+          Artisan::command('phase5:ads-doctor', function (D2dAdsConfig $ads) {
+              $d=$ads->diagnostics(); $s=$d['settings'];
+              $this->newLine(); $this->info('D2D Phase 5C — Ads Only Doctor'); $this->line(str_repeat('=',46));
+              $this->line('Settings source: '.($s['source']?:'not detected'));
+              $this->line('Prepare AdSense: '.($s['prepare_adsense']?'ON':'OFF'));
+              $this->line('Publisher ID: '.($s['publisher_id']?:'not detected'));
+              $this->line('Auto Ads: '.($s['auto_ads']?'ON — LIVE ADS BLOCKED UNTIL OFF':'OFF'));
+              $this->line('Test mode: '.($s['test_mode']?'ON':'OFF'));
+              $this->line('ads.txt setting: '.($s['ads_txt']?'detected':'not detected / untouched'));
+              $this->newLine(); $this->info('Approved single-detail pages only');
+              foreach($d['approved'] as $x)$this->line('  - '.$x);
+              $this->newLine(); $this->line('Settings tables: '.(implode(', ',$d['settings_tables'])?:'none detected'));
+              $this->line('Ad rule tables: '.(implode(', ',$d['rule_tables'])?:'none detected'));
+              $this->newLine(); $this->info('Hard blocks');
+              $this->line('Homepage, listings, guidebooks/resources, tools, CRM and Portal: ALWAYS ad-free.');
+              $this->line('preview.dares2dream.com: live Google requests ALWAYS suppressed.');
+              $this->line('No migrations. No database writes.');
+              return 0;
+          });
+          FILE,
+          ];
+
+          $stamp = date('Ymd-His');
+          $backup = $base.'/storage/app/phase5-backups/ads-only-'.$stamp;
+          @mkdir($backup, 0775, true);
+          $manifest = ['backup'=>$backup,'created'=>[],'replaced'=>[]];
+
+          foreach ($files as $relative=>$contents) {
+              $target = $base.'/'.$relative;
+              if (is_file($target)) {
+                  @mkdir(dirname($backup.'/'.$relative), 0775, true);
+                  copy($target, $backup.'/'.$relative);
+                  $manifest['replaced'][] = $relative;
+              } else {
+                  $manifest['created'][] = $relative;
+              }
+              @mkdir(dirname($target), 0775, true);
+              file_put_contents($target, $contents);
+              echo "Installed: {$relative}\n";
+          }
+
+          $providers = $base.'/bootstrap/providers.php';
+          if (!is_file($providers)) {
+              fwrite(STDERR, "ERROR: bootstrap/providers.php not found.\n");
+              exit(1);
+          }
+          @mkdir(dirname($backup.'/bootstrap/providers.php'), 0775, true);
+          copy($providers, $backup.'/bootstrap/providers.php');
+          $manifest['replaced'][] = 'bootstrap/providers.php';
+
+          $content = (string)file_get_contents($providers);
+          $provider = 'App\\Providers\\D2dAdsServiceProvider::class';
+          if (!str_contains($content, $provider)) {
+              $pos = strrpos($content, '];');
+              if ($pos === false) {
+                  fwrite(STDERR, "ERROR: Could not safely register ads provider.\n");
+                  exit(1);
+              }
+              $before = rtrim(substr($content, 0, $pos));
+              $after = substr($content, $pos);
+              $comma = str_ends_with($before, ',') ? '' : ',';
+              $content = $before.$comma."\n    ".$provider.",\n".$after;
+              file_put_contents($providers, $content);
+              echo "Registered ads provider.\n";
+          } else {
+              echo "Ads provider already registered.\n";
+          }
+
+          @mkdir($base.'/storage/app', 0775, true);
+          file_put_contents($base.'/storage/app/phase5-ads-only-manifest.json', json_encode($manifest, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
+
+          echo "\nADS-ONLY SAFETY:\n";
+          echo "- Existing Blade pages untouched.\n";
+          echo "- Existing controllers untouched.\n";
+          echo "- routes/web.php untouched.\n";
+          echo "- Existing website CSS/JS untouched.\n";
+          echo "- CRM and Portal untouched.\n";
+          echo "- ads.txt untouched.\n";
+          echo "- No migrations or DB writes.\n";
+          echo "- Guidebooks/resources hard-blocked.\n\n";
+          echo "Run now:\nphp artisan optimize:clear\nphp artisan phase5:ads-doctor\n";
+          PHP
+
+          cat > "$PKG/rollback-phase5c-ads-only.php" <<'PHP'
+          <?php
+          declare(strict_types=1);
+          $base=__DIR__;
+          $path=$base.'/storage/app/phase5-ads-only-manifest.json';
+          if(!is_file($path)){fwrite(STDERR,"No ads-only manifest found.\n");exit(1);}
+          $m=json_decode((string)file_get_contents($path),true);
+          if(!is_array($m)||empty($m['backup'])){fwrite(STDERR,"Invalid ads-only manifest.\n");exit(1);}
+          $backup=$m['backup'];
+          foreach(($m['replaced']??[]) as $rel){$src=$backup.'/'.$rel;$dst=$base.'/'.$rel;if(is_file($src)){@mkdir(dirname($dst),0775,true);copy($src,$dst);echo "Restored: $rel\n";}}
+          foreach(($m['created']??[]) as $rel){$dst=$base.'/'.$rel;if(is_file($dst)){unlink($dst);echo "Removed: $rel\n";}}
+          echo "Rollback complete. Run php artisan optimize:clear\n";
+          PHP
+
+          cat > "$PKG/README.md" <<'MD'
+          # D2D Phase 5C — Ads Only Safe Layer
+
+          This package is intentionally isolated. It does **not** overwrite your current page work.
+
+          ## Hard whitelist — ads only on single detail pages
+          - `/blog/{slug}`
+          - `/universities/{slug}`
+          - `/scholarships/{slug}`
+          - `/opportunities/{slug}`
+          - `/jobs/{slug}`
+
+          ## Hard blocked everywhere else
+          Homepage, all listing pages, guidebooks/resources (including single guidebooks), tools, CRM, Student Portal and Consultant Portal stay ad-free.
+
+          ## Preview safety
+          `preview.dares2dream.com` never makes a live Google AdSense request. It shows placement placeholders only.
+
+          ## Auto Ads
+          Keep Auto Ads OFF. If the CRM setting says Auto Ads is ON, this renderer blocks live ads instead of risking automatic placement across a detail page.
+
+          ## What the installer changes
+          It adds new ads-only files and registers one service provider in `bootstrap/providers.php`.
+          It does not edit existing Blade views, controllers, `routes/web.php`, or existing website CSS/JS.
+          It does not edit `ads.txt`.
+
+          ## Install
+          Extract into `/home/daresdre/d2d-laravel/`, then:
+
+          ```bash
+          cd ~/d2d-laravel
+          php install-phase5c-ads-only.php
+          php artisan optimize:clear
+          php artisan phase5:ads-doctor
+          ```
+
+          Do not run migrations.
+
+          ## Rollback
+          ```bash
+          cd ~/d2d-laravel
+          php rollback-phase5c-ads-only.php
+          php artisan optimize:clear
+          ```
+          MD
+
+          php -l "$PKG/install-phase5c-ads-only.php"
+          php -l "$PKG/rollback-phase5c-ads-only.php"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-phase5c-ads-only-safe
+          path: d2d-phase5c-ads-only-safe/
+          if-no-files-found: error
