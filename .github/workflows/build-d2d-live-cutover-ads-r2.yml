@@ -1,0 +1,34 @@
+name: Build D2D Live Cutover Ads R2
+
+on:
+  push:
+    branches:
+      - chatgpt-d2d-phase4-artifact
+    paths:
+      - 'artifacts_src/d2d-live-cutover-ads-r2/**'
+      - '.github/workflows/build-d2d-live-cutover-ads-r2.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PHP syntax
+        run: |
+          set -e
+          find artifacts_src/d2d-live-cutover-ads-r2 -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Build ZIP
+        run: |
+          set -e
+          cd artifacts_src/d2d-live-cutover-ads-r2
+          zip -r "$GITHUB_WORKSPACE/d2d-live-cutover-ads-r2.zip" .
+          unzip -t "$GITHUB_WORKSPACE/d2d-live-cutover-ads-r2.zip"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-live-cutover-ads-r2
+          path: d2d-live-cutover-ads-r2.zip
+          if-no-files-found: error
