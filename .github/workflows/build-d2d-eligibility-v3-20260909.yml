@@ -1,0 +1,26 @@
+name: Build D2D Eligibility V3 20260909
+on:
+  push:
+    branches: [chatgpt-d2d-phase4-artifact]
+    paths:
+      - '.github/d2d-build/build_eligibility_v3_20260909.py'
+      - '.github/workflows/build-d2d-eligibility-v3-20260909.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt-d2d-phase4-artifact
+      - name: Install PHP
+        run: sudo apt-get update -qq && sudo apt-get install -y php-cli zip
+      - name: Build and validate
+        run: python3 .github/d2d-build/build_eligibility_v3_20260909.py
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2d-tool1-eligibility-portal-v3
+          path: build/d2d-tool1-eligibility-portal-v3.zip
+          if-no-files-found: error
+          retention-days: 90
